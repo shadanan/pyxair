@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import socket
 import pythonosc.osc_message
@@ -32,11 +33,21 @@ class XAir:
         self.sock.setblocking(False)
         self.cache = {}
         self.cv = asyncio.Condition()
+        self.callbacks = set()
+        self.add_callback(self.callback)
         self.subscriptions = set()
-        self.subscribe(self.callback)
 
-    def subscribe(self, callback: Callable[[OscMessage], Awaitable[None]]):
-        self.subscriptions.add(callback)
+    def add_callback(self, callback: Callable[[OscMessage], Awaitable[None]]):
+        self.callbacks.add(callback)
+
+    @contextlib.contextmanager
+    def subscribe(self):
+        try:
+            queue = asyncio.Queue()
+            self.subscriptions.add(queue)
+            yield queue
+        finally:
+            self.subscriptions.remove(queue)
 
     async def get(self, address) -> OscMessage:
         if address not in self.cache:
@@ -57,8 +68,10 @@ class XAir:
             self.cv.notify()
 
     async def notify(self, message: OscMessage):
-        for callback in self.subscriptions:
+        for callback in self.callbacks:
             await callback(message)
+        for queue in self.subscriptions:
+            await queue.put(message)
 
     async def monitor(self):
         logger.debug("Subscribing to events from %s", self.xinfo)
