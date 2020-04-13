@@ -1,10 +1,11 @@
 import asyncio
+import contextlib
 import logging
 import socket
 import pythonosc.osc_message
 import pythonosc.osc_message_builder
 from collections import namedtuple
-from typing import Any, List
+from typing import Any, List, Set
 
 
 logger = logging.getLogger("pyxair")
@@ -25,27 +26,41 @@ def decode(dgram):
     return OscMessage(message.address, message.params)
 
 
-class XAir:
+class XAirPubSub:
     def __init__(self, xinfo):
         self.xinfo = xinfo
-        self.subscribed = False
-        self.cache = {}
-        self.cv = asyncio.Condition()
+        self.subscriptions = set()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
 
-    async def subscribe(self):
+    def publish(self, osc_message):
+        logger.debug("Sending: %s", osc_message)
+        self.sock.sendto(encode(osc_message), (self.xinfo.ip, self.xinfo.port))
+
+    @contextlib.contextmanager
+    def subscribe(self):
+        try:
+            queue = asyncio.Queue()
+            self.subscriptions.add(queue)
+            yield queue
+        finally:
+            self.subscriptions.remove(queue)
+
+    async def monitor(self):
         logger.debug("Subscribing to events from %s", self.xinfo)
-        self.subscribed = True
 
         async def xremote():
             while True:
-                self.send(OscMessage("/xremote", []))
+                self.publish(OscMessage("/xremote", []))
                 await asyncio.sleep(8)
 
         async def receive():
             while True:
-                await self.receive()
+                loop = asyncio.get_running_loop()
+                message = decode(await loop.sock_recv(self.sock, 512))
+                logger.debug("Received: %s", message)
+                for queue in self.subscriptions:
+                    await queue.put(message)
 
         xremote_task = asyncio.create_task(xremote())
         receive_task = asyncio.create_task(receive())
@@ -54,13 +69,19 @@ class XAir:
         except asyncio.CancelledError:
             pass
 
-        self.subscribed = False
+    def __repr__(self):
+        return f"XAirPubSub({repr(self.xinfo)})"
+
+
+class XAirCacheClient:
+    def __init__(self, pubsub: XAirPubSub):
+        self.pubsub = pubsub
+        self.cache = {}
+        self.cv = asyncio.Condition()
 
     async def get(self, address):
-        if not self.subscribed or address not in self.cache:
-            self.send(OscMessage(address, []))
-            self.cache.pop(address, None)
-            asyncio.create_task(self.receive())
+        if address not in self.cache:
+            self.pubsub.publish(OscMessage(address, []))
         async with self.cv:
             while address not in self.cache:
                 await self.cv.wait()
@@ -68,26 +89,21 @@ class XAir:
 
     async def set(self, address, arguments):
         osc_message = OscMessage(address, arguments)
-        self.send(osc_message)
+        self.pubsub.publish(osc_message)
         async with self.cv:
             self.cache[osc_message.address] = osc_message
             self.cv.notify()
 
-    def send(self, osc_message):
-        logger.debug("Sending: %s", osc_message)
-        self.sock.sendto(encode(osc_message), (self.xinfo.ip, self.xinfo.port))
-
-    async def receive(self):
-        loop = asyncio.get_running_loop()
-        response = decode(await loop.sock_recv(self.sock, 512))
-        logger.debug("Received: %s", response)
-        async with self.cv:
-            self.cache[response.address] = response
-            self.cv.notify()
-        return response
+    async def monitor(self):
+        with self.pubsub.subscribe() as queue:
+            while True:
+                response = await queue.get()
+                async with self.cv:
+                    self.cache[response.address] = response
+                    self.cv.notify()
 
     def __repr__(self):
-        return f"XAir({repr(self.xinfo)})"
+        return f"XAirClient({repr(self.pubsub)})"
 
 
 def auto_detect(timeout=3) -> XInfo:
@@ -107,11 +123,7 @@ def auto_detect(timeout=3) -> XInfo:
         sock.close()
 
 
-def auto_connect():
-    return XAir(auto_detect())
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    x_air = auto_connect()
-    asyncio.run(x_air.subscribe())
+    pubsub = XAirPubSub(auto_detect())
+    asyncio.run(pubsub.monitor())

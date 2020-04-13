@@ -4,15 +4,26 @@ Python library for interacting with Behringer XAir devices.
 
 ## Usage
 
-### Connect to XAir device:
+### Detect XAir Devices
 
 ```python
-x_air = pyxair.auto_connect()
+xinfo = pyxair.auto_detect()
+```
+
+### Create an XAir Client
+
+`XAirPubSub` subscribes to events from an XAir device and then distributes the messages to subscribed clients.
+
+`XAirCacheClient` is a client that subscribes to events from `XAirPubSub` and caches the messages.
+
+```python
+pubsub = pyxair.XAirPubSub(xinfo)
+asyncio.create_task(pubsub.monitor())
+x_air = pyxair.XAirCacheClient(pubsub)
+asyncio.create_task(x_air.monitor())
 ```
 
 ### Get & Set
-
-After connecting to the XAir device, the XAir class will be operating in "immediate" mode. In this mode, calling `get` and `set` will always immediately send events to the XAir device.
 
 Here's an example using the `get` coroutine to retrieve the status. This is achieved by sending an OSC message to the `/status` address:
 
@@ -56,17 +67,9 @@ Response:
 OscMessage(address='/lr/mix/on', arguments=[1])
 ```
 
-### Subscribe to Updates
+### Subscription Updates
 
-After calling the `subscribe()` coroutine, the XAir device switches from "immediate" mode to "deferred" mode. In this mode, we subscribe to events from the XAir device. As update events arrive, they will be saved to a cache.
-
-The behavior of the `get` coroutine will now return values from the cache instead of requesting updates directly from the XAir device. If the required OSC address is not in the cache, then `get` will request an update from the XAir device.
-
-```python
-subscription = asyncio.create_task(x_air.subscribe())
-```
-
-After subscribing, `x_air.subscribed` will be set to `True`. In this example, the XAir `cache` attribute currently looks like this:
+In this example, the XAirCacheClient `cache` attribute currently looks like this:
 
 ```python
 {
@@ -84,7 +87,7 @@ If you unmute the main L/R channel using X-AIR-Edit, or some other client, and t
 }
 ```
 
-Using `get` while in deferred mode on an OSC address not in the cache will fetch the value from the XAir device and update the cache:
+Using `get` on an OSC address not in the cache will fetch the value from the XAir device and update the cache:
 
 ```python
 await x_air.get('/lr/mix/fader')
@@ -98,11 +101,3 @@ Now, the cache will look like this:
     '/lr/mix/on': OscMessage(address='/lr/mix/on', arguments=[1]),
     '/lr/mix/fader': OscMessage(address='/lr/mix/fader', arguments=[0.5747800469398499])}
 ```
-
-We can cancel the subscription by calling `cancel()` on the task returned from `subscribe()`:
-
-```python
-subscription.cancel()
-```
-
-Cancelling the subscription causes `x_air.subscribed` to be `False`.
