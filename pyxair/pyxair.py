@@ -1,11 +1,10 @@
 import asyncio
-import contextlib
 import logging
 import socket
 import pythonosc.osc_message
 import pythonosc.osc_message_builder
 from collections import namedtuple
-from typing import Any, List, Set
+from typing import Any, Awaitable, Callable, List, Set
 
 
 logger = logging.getLogger("pyxair")
@@ -33,25 +32,23 @@ class XAirPubSub:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
 
-    def publish(self, osc_message):
-        logger.debug("Sending: %s", osc_message)
-        self.sock.sendto(encode(osc_message), (self.xinfo.ip, self.xinfo.port))
+    async def publish(self, message: OscMessage):
+        logger.debug("Sending: %s", message)
+        self.sock.sendto(encode(message), (self.xinfo.ip, self.xinfo.port))
 
-    @contextlib.contextmanager
-    def subscribe(self):
-        try:
-            queue = asyncio.Queue()
-            self.subscriptions.add(queue)
-            yield queue
-        finally:
-            self.subscriptions.remove(queue)
+    def subscribe(self, callback: Callable[[OscMessage], Awaitable[None]]):
+        self.subscriptions.add(callback)
+
+    async def notify(self, message: OscMessage):
+        for callback in self.subscriptions:
+            await callback(message)
 
     async def monitor(self):
         logger.debug("Subscribing to events from %s", self.xinfo)
 
         async def xremote():
             while True:
-                self.publish(OscMessage("/xremote", []))
+                await self.publish(OscMessage("/xremote", []))
                 await asyncio.sleep(8)
 
         async def receive():
@@ -59,8 +56,7 @@ class XAirPubSub:
                 loop = asyncio.get_running_loop()
                 message = decode(await loop.sock_recv(self.sock, 512))
                 logger.debug("Received: %s", message)
-                for queue in self.subscriptions:
-                    await queue.put(message)
+                await self.notify(message)
 
         xremote_task = asyncio.create_task(xremote())
         receive_task = asyncio.create_task(receive())
@@ -73,34 +69,30 @@ class XAirPubSub:
         return f"XAirPubSub({repr(self.xinfo)})"
 
 
-class XAirCacheClient:
+class XAirClient:
     def __init__(self, pubsub: XAirPubSub):
         self.pubsub = pubsub
         self.cache = {}
         self.cv = asyncio.Condition()
+        self.pubsub.subscribe(self.callback)
 
     async def get(self, address):
         if address not in self.cache:
-            self.pubsub.publish(OscMessage(address, []))
+            await self.pubsub.publish(OscMessage(address, []))
         async with self.cv:
             while address not in self.cache:
                 await self.cv.wait()
             return self.cache[address]
 
     async def set(self, address, arguments):
-        osc_message = OscMessage(address, arguments)
-        self.pubsub.publish(osc_message)
-        async with self.cv:
-            self.cache[osc_message.address] = osc_message
-            self.cv.notify()
+        message = OscMessage(address, arguments)
+        await self.pubsub.publish(message)
+        await self.pubsub.notify(message)
 
-    async def monitor(self):
-        with self.pubsub.subscribe() as queue:
-            while True:
-                response = await queue.get()
-                async with self.cv:
-                    self.cache[response.address] = response
-                    self.cv.notify()
+    async def callback(self, message: OscMessage):
+        async with self.cv:
+            self.cache[message.address] = message
+            self.cv.notify()
 
     def __repr__(self):
         return f"XAirClient({repr(self.pubsub)})"
@@ -126,4 +118,5 @@ def auto_detect(timeout=3) -> XInfo:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     pubsub = XAirPubSub(auto_detect())
+    xair = XAirClient(pubsub)
     asyncio.run(pubsub.monitor())
