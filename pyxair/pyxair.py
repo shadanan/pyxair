@@ -45,9 +45,11 @@ class XAir:
         try:
             queue = asyncio.Queue()
             self.subscriptions.add(queue)
+            logger.debug(f"Subscriber registering to {queue}")
             yield queue
         finally:
             self.subscriptions.remove(queue)
+            logger.debug(f"Subscriber unregistered from {queue}")
 
     async def get(self, address) -> OscMessage:
         if address not in self.cache:
