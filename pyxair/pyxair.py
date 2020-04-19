@@ -32,7 +32,6 @@ class XAir:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
         self.cache = {}
-        self.cv = asyncio.Condition()
         self.callbacks = set()
         self.add_callback(self.callback)
         self.subscriptions = set()
@@ -77,6 +76,7 @@ class XAir:
 
     async def monitor(self):
         logger.debug("Subscribing to events from %s", self.xinfo)
+        self.cv = asyncio.Condition()
 
         async def xremote():
             while True:
