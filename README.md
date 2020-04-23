@@ -63,7 +63,7 @@ Response:
 OscMessage(address='/lr/mix/on', arguments=[1])
 ```
 
-### Subscription Updates
+### Monitoring Updates
 
 In this example, the XAir `_cache` attribute currently looks like this:
 
@@ -95,5 +95,25 @@ Now, the `_cache` will look like this:
 {
     '/status': OscMessage(address='/status', arguments=['active', '192.168.86.128', 'XR18-5E-91-5A']),
     '/lr/mix/on': OscMessage(address='/lr/mix/on', arguments=[1]),
-    '/lr/mix/fader': OscMessage(address='/lr/mix/fader', arguments=[0.5747800469398499])}
+    '/lr/mix/fader': OscMessage(address='/lr/mix/fader', arguments=[0.5747800469398499])
+}
+```
+
+### Subscribing to Updates
+
+Use the `subscribe` method to get published messages:
+
+```python
+with xair.subscribe() as queue:
+    while True:
+        message = await queue.get()
+        print(f"Got a new OSC message: {message}")
+```
+
+### Subscribing to Meters
+
+Enable a meter on an `XAir` instance, and then meter updates will be published to the same subscription queue as described in the previous section:
+
+```python
+xair.enable_meter(2)
 ```
