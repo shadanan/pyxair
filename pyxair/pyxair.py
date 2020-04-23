@@ -2,14 +2,43 @@ import asyncio
 import contextlib
 import logging
 import socket
+import struct
 import pythonosc.osc_message
 import pythonosc.osc_message_builder
-from collections import namedtuple
+from collections import defaultdict, namedtuple
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, List, Set
 
 
 logger = logging.getLogger("pyxair")
+
+
+class MeterLoggingFilter(logging.Filter):
+    def __init__(self):
+        self.last_log_time = datetime.min
+        self.meter_counters = defaultdict(int)
+
+    def filter(self, record):
+        if record.msg == "Received: %s":
+            message = record.args[0]
+            if message.address.startswith("/meters/"):
+                self.meter_counters[message.address] += 1
+                now = datetime.now()
+                if now - self.last_log_time > timedelta(seconds=10):
+                    self.last_log_time = now
+                    logger.debug(
+                        "Received: %d OscMessages for %s",
+                        self.meter_counters[message.address],
+                        message.address,
+                    )
+                return False
+        return True
+
+
+logger.addFilter(MeterLoggingFilter())
 logger.setLevel(logging.DEBUG)
+
+
 OscMessage = namedtuple("OscMessage", ["address", "arguments"])
 XInfo = namedtuple("XInfo", ["ip", "port", "name", "model", "version"])
 
@@ -28,81 +57,92 @@ def decode(dgram):
 
 class XAir:
     def __init__(self, xinfo):
-        self.xinfo = xinfo
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setblocking(False)
-        self.cache = {}
-        self.callbacks = set()
-        self.add_callback(self.callback)
-        self.subscriptions = set()
-
-    def add_callback(self, callback: Callable[[OscMessage], Awaitable[None]]):
-        self.callbacks.add(callback)
+        self._xinfo = xinfo
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.setblocking(False)
+        self._cache = {}
+        self._meters = {}
+        self._subscriptions = set()
 
     @contextlib.contextmanager
     def subscribe(self):
         try:
             queue = asyncio.Queue()
-            self.subscriptions.add(queue)
+            self._subscriptions.add(queue)
             logger.debug(f"Subscriber registering to {queue}")
             yield queue
         finally:
-            self.subscriptions.remove(queue)
+            self._subscriptions.remove(queue)
             logger.debug(f"Subscriber unregistered from {queue}")
 
     async def get(self, address) -> OscMessage:
-        if address not in self.cache:
+        if address not in self._cache:
             self.send(OscMessage(address, []))
         async with self.cv:
-            while address not in self.cache:
+            while address not in self._cache:
                 await self.cv.wait()
-            return self.cache[address]
+            return self._cache[address]
 
     async def put(self, address, arguments):
         message = OscMessage(address, arguments)
         self.send(message)
-        await self.notify(message)
+        await self._notify(message)
 
-    async def callback(self, message: OscMessage):
-        async with self.cv:
-            self.cache[message.address] = message
-            self.cv.notify()
+    def send(self, message: OscMessage):
+        logger.debug("Sending: %s", message)
+        self._sock.sendto(encode(message), (self._xinfo.ip, self._xinfo.port))
 
-    async def notify(self, message: OscMessage):
-        for callback in self.callbacks:
-            await callback(message)
-        for queue in self.subscriptions:
-            await queue.put(message)
+    def enable_meter(self, id, channel=None):
+        self._meters[(id, channel)] = [f"/meters/{id}"]
+        if channel is not None:
+            self._meters[(id, channel)].append(channel)
+
+    def disable_meter(self, id, channel=None):
+        del self._meters[(id, channel)]
 
     async def monitor(self):
-        logger.debug("Subscribing to events from %s", self.xinfo)
+        logger.debug("Subscribing to events from %s", self._xinfo)
         self.cv = asyncio.Condition()
 
-        async def xremote():
+        async def refresh():
             while True:
                 self.send(OscMessage("/xremote", []))
+                for arguments in self._meters.values():
+                    self.send(OscMessage("/meters", arguments))
                 await asyncio.sleep(8)
 
         async def receive():
             while True:
                 loop = asyncio.get_running_loop()
-                message = decode(await loop.sock_recv(self.sock, 512))
+                message = decode(await loop.sock_recv(self._sock, 512))
+                if message.address.startswith("/meters/"):
+                    data = message.arguments[0]
+                    message = OscMessage(
+                        message.address,
+                        struct.unpack(
+                            f"<{struct.unpack('<i', data[0:4])[0]}h", data[4:],
+                        ),
+                    )
                 logger.debug("Received: %s", message)
-                await self.notify(message)
+                await self._notify(message)
 
-        xremote_task = asyncio.create_task(xremote())
+        refresh_task = asyncio.create_task(refresh())
         receive_task = asyncio.create_task(receive())
         try:
-            await asyncio.gather(xremote_task, receive_task)
+            await asyncio.gather(refresh_task, receive_task)
         except asyncio.CancelledError:
             pass
 
-    def send(self, message: OscMessage):
-        logger.debug("Sending: %s", message)
-        self.sock.sendto(encode(message), (self.xinfo.ip, self.xinfo.port))
+    async def _notify(self, message: OscMessage):
+        if not message.address.startswith("/meters/"):
+            async with self.cv:
+                self._cache[message.address] = message
+                self.cv.notify()
+        for queue in self._subscriptions:
+            await queue.put(message)
 
     def __repr__(self):
-        return f"XAir({repr(self.xinfo)})"
+        return f"XAir({repr(self._xinfo)})"
 
 
 def auto_detect(timeout=3) -> XInfo:
@@ -123,6 +163,10 @@ def auto_detect(timeout=3) -> XInfo:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+        level=logging.DEBUG,
+    )
     xair = XAir(auto_detect())
+    xair.enable_meter(2)
     asyncio.run(xair.monitor())

@@ -65,7 +65,7 @@ OscMessage(address='/lr/mix/on', arguments=[1])
 
 ### Subscription Updates
 
-In this example, the XAir `cache` attribute currently looks like this:
+In this example, the XAir `_cache` attribute currently looks like this:
 
 ```python
 {
@@ -74,7 +74,7 @@ In this example, the XAir `cache` attribute currently looks like this:
 }
 ```
 
-If you unmute the main L/R channel using X-AIR-Edit, or some other client, and then observe the `cache` attribute again, it will look like this:
+If you unmute the main L/R channel using X-AIR-Edit, or some other client, and then observe the `_cache` attribute again, it will look like this:
 
 ```python
 {
@@ -89,7 +89,7 @@ Using `get` on an OSC address not in the cache will fetch the value from the XAi
 await xair.get('/lr/mix/fader')
 ```
 
-Now, the cache will look like this:
+Now, the `_cache` will look like this:
 
 ```python
 {
