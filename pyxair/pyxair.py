@@ -36,7 +36,6 @@ class MeterLoggingFilter(logging.Filter):
 
 
 logger.addFilter(MeterLoggingFilter())
-logger.setLevel(logging.DEBUG)
 
 
 OscMessage = namedtuple("OscMessage", ["address", "arguments"])
@@ -69,11 +68,11 @@ class XAir:
         try:
             queue = asyncio.Queue()
             self._subscriptions.add(queue)
-            logger.debug(f"Subscriber registering to {queue}")
+            logger.info(f"Subscribed: {queue}")
             yield queue
         finally:
             self._subscriptions.remove(queue)
-            logger.debug(f"Subscriber unregistered from {queue}")
+            logger.info(f"Unsubscribed: {queue}")
 
     async def get(self, address) -> OscMessage:
         if address not in self._cache:
@@ -81,10 +80,12 @@ class XAir:
         async with self.cv:
             while address not in self._cache:
                 await self.cv.wait()
+            logger.info("Get: %s", self._cache[address])
             return self._cache[address]
 
     async def put(self, address, arguments):
         message = OscMessage(address, arguments)
+        logger.info("Put: %s", message)
         self.send(message)
         await self._notify(message)
 
@@ -93,15 +94,17 @@ class XAir:
         self._sock.sendto(encode(message), (self._xinfo.ip, self._xinfo.port))
 
     def enable_meter(self, id, channel=None):
+        logger.info("Enabled Meter: %d (%s)", id, channel)
         self._meters[(id, channel)] = [f"/meters/{id}"]
         if channel is not None:
             self._meters[(id, channel)].append(channel)
 
     def disable_meter(self, id, channel=None):
+        logger.info("Disabled Meter: %d (%s)", id, channel)
         del self._meters[(id, channel)]
 
     async def monitor(self):
-        logger.debug("Subscribing to events from %s", self._xinfo)
+        logger.info("Monitoring: %s", self._xinfo)
         self.cv = asyncio.Condition()
 
         async def refresh():
@@ -123,7 +126,8 @@ class XAir:
                             f"<{struct.unpack('<i', data[0:4])[0]}h", data[4:],
                         ),
                     )
-                logger.debug("Received: %s", message)
+                else:
+                    logger.info("Received: %s", message)
                 await self._notify(message)
 
         refresh_task = asyncio.create_task(refresh())
@@ -164,8 +168,7 @@ def auto_detect(timeout=3) -> XInfo:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s", level=logging.INFO,
     )
     xair = XAir(auto_detect())
     xair.enable_meter(2)
