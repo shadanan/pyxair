@@ -2,7 +2,18 @@ import asyncio
 import logging
 import pytest
 import socket
-from pyxair import decode, OscMessage, XAir, XInfo
+from pyxair import encode, decode, OscMessage, XAir, XInfo
+import types
+from typing import Any, Tuple
+
+
+def xsend(sock: socket.socket, msg: OscMessage, addr):
+    sock.sendto(encode(msg), addr)
+
+
+def xrecv(sock: socket.socket) -> Tuple[OscMessage, Any]:
+    data, addr = sock.recvfrom(512)
+    return decode(data), addr
 
 
 @pytest.fixture
@@ -39,8 +50,28 @@ async def test_put_sends_osc_message_to_xair(
     xair: XAir, sock: socket.socket, event_loop: asyncio.AbstractEventLoop
 ):
     task = event_loop.create_task(xair.monitor())
-    await asyncio.sleep(0)
+    await asyncio.sleep(0.01)
+    message, _ = xrecv(sock)
+    assert message == OscMessage("/xremote", [])
     await xair.put("/lr/mix/on", [1])
-    message = decode(sock.recv(512))
+    message, _ = xrecv(sock)
+    assert message == OscMessage("/lr/mix/on", [1])
+    task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_get(
+    xair: XAir, sock: socket.socket, event_loop: asyncio.AbstractEventLoop
+):
+    task = event_loop.create_task(xair.monitor())
+    await asyncio.sleep(0.01)
+    message, _ = xrecv(sock)
+    assert message == OscMessage("/xremote", [])
+    get_task = event_loop.create_task(xair.get("/lr/mix/on"))
+    await asyncio.sleep(0.1)
+    message, addr = xrecv(sock)
+    assert message == OscMessage("/lr/mix/on", [])
+    xsend(sock, OscMessage("/lr/mix/on", [1]), addr)
+    message = await get_task
     assert message == OscMessage("/lr/mix/on", [1])
     task.cancel()
