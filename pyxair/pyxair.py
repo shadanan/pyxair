@@ -77,9 +77,9 @@ class XAir:
     async def get(self, address) -> OscMessage:
         if address not in self._cache:
             self.send(OscMessage(address, []))
-        async with self.cv:
+        async with self._cv:
             while address not in self._cache:
-                await self.cv.wait()
+                await self._cv.wait()
             logger.info("Get: %s", self._cache[address])
             return self._cache[address]
 
@@ -105,7 +105,7 @@ class XAir:
 
     async def monitor(self):
         logger.info("Monitoring: %s", self._xinfo)
-        self.cv = asyncio.Condition()
+        self._cv = asyncio.Condition()
 
         async def refresh():
             while True:
@@ -139,9 +139,9 @@ class XAir:
 
     async def _notify(self, message: OscMessage):
         if not message.address.startswith("/meters/"):
-            async with self.cv:
+            async with self._cv:
                 self._cache[message.address] = message
-                self.cv.notify()
+                self._cv.notify()
         for queue in self._subscriptions:
             await queue.put(message)
 
