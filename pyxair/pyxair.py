@@ -141,8 +141,8 @@ class XAir:
         # receive_task = loop.create_task(receive())
         try:
             await asyncio.gather(refresh_task, cache_task)
-        except asyncio.CancelledError as e:
-            raise e
+        except asyncio.CancelledError:
+            pass
 
     def _notify(self, message: OscMessage):
         for queue, meters in self._subscriptions:
