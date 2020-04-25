@@ -45,19 +45,19 @@ async def test_send_encodes_osc_and_sends_message(xair, server, event_loop):
 
 @pytest.mark.asyncio
 async def test_put(xair, server, event_loop):
-    task = event_loop.create_task(xair.monitor())
+    event_loop.create_task(xair.monitor())
     await asyncio.sleep(0.01)
     message = server.recv()
     assert message == OscMessage("/xremote", [])
-    await xair.put("/lr/mix/on", [1])
+    xair.put("/lr/mix/on", [1])
     message = server.recv()
     assert message == OscMessage("/lr/mix/on", [1])
-    task.cancel()
+    event_loop.stop()
 
 
 @pytest.mark.asyncio
 async def test_get(xair, server, event_loop):
-    task = event_loop.create_task(xair.monitor())
+    event_loop.create_task(xair.monitor())
     await asyncio.sleep(0.01)
     message = server.recv()
     assert message == OscMessage("/xremote", [])
@@ -68,4 +68,4 @@ async def test_get(xair, server, event_loop):
     server.send(OscMessage("/lr/mix/on", [1]))
     message = await get_task
     assert message == OscMessage("/lr/mix/on", [1])
-    task.cancel()
+    event_loop.stop()
