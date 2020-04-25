@@ -105,6 +105,7 @@ class XAir:
 
     async def monitor(self):
         logger.info("Monitoring: %s", self._xinfo)
+        loop = asyncio.get_running_loop()
         self._cv = asyncio.Condition()
 
         async def refresh():
@@ -116,7 +117,6 @@ class XAir:
 
         async def receive():
             while True:
-                loop = asyncio.get_running_loop()
                 message = decode(await loop.sock_recv(self._sock, 512))
                 if message.address.startswith("/meters/"):
                     data = message.arguments[0]
@@ -130,8 +130,8 @@ class XAir:
                     logger.info("Received: %s", message)
                 await self._notify(message)
 
-        refresh_task = asyncio.create_task(refresh())
-        receive_task = asyncio.create_task(receive())
+        refresh_task = loop.create_task(refresh())
+        receive_task = loop.create_task(receive())
         try:
             await asyncio.gather(refresh_task, receive_task)
         except asyncio.CancelledError:
