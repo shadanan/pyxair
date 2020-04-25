@@ -39,6 +39,7 @@ async def test_put_sends_osc_message_to_xair(
     xair: XAir, sock: socket.socket, event_loop: asyncio.AbstractEventLoop
 ):
     task = event_loop.create_task(xair.monitor())
+    await asyncio.sleep(0)
     await xair.put("/lr/mix/on", [1])
     message = decode(sock.recv(512))
     assert message == OscMessage("/lr/mix/on", [1])
