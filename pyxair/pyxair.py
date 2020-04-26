@@ -134,7 +134,6 @@ class XAir:
         refresh_task = loop.create_task(refresh())
         cache_task = loop.create_task(cache())
         loop.add_reader(self._sock, receive)
-        # receive_task = loop.create_task(receive())
         try:
             await asyncio.gather(refresh_task, cache_task)
         except asyncio.CancelledError:
@@ -175,5 +174,5 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(name)s - %(message)s", level=logging.INFO,
     )
     xair = XAir(auto_detect())
-    # xair.enable_meter(2)
+    xair.enable_meter(2)
     asyncio.run(xair.monitor())
