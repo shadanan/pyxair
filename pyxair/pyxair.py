@@ -79,7 +79,7 @@ class XAir:
         if address in self._cache:
             return self._cache[address]
         with self.subscribe(meters=False) as queue:
-            self.send(OscMessage(address, []))
+            self._send(OscMessage(address, []))
             while True:
                 message = await queue.get()
                 if message.address == address:
@@ -89,12 +89,8 @@ class XAir:
     def put(self, address, arguments):
         message = OscMessage(address, arguments)
         logger.info("Put: %s", message)
-        self.send(message)
+        self._send(message)
         self._notify(message)
-
-    def send(self, message: OscMessage):
-        logger.debug("Sending: %s", message)
-        self._sock.sendto(encode(message), (self._xinfo.ip, self._xinfo.port))
 
     def enable_meter(self, id, channel=None):
         logger.info("Enabled Meter: %d (%s)", id, channel)
@@ -112,9 +108,9 @@ class XAir:
 
         async def refresh():
             while True:
-                self.send(OscMessage("/xremote", []))
+                self._send(OscMessage("/xremote", []))
                 for arguments in self._meters.values():
-                    self.send(OscMessage("/meters", arguments))
+                    self._send(OscMessage("/meters", arguments))
                 await asyncio.sleep(8)
 
         async def cache():
@@ -143,6 +139,10 @@ class XAir:
             await asyncio.gather(refresh_task, cache_task)
         except asyncio.CancelledError:
             pass
+
+    def _send(self, message: OscMessage):
+        logger.debug("Sending: %s", message)
+        self._sock.sendto(encode(message), (self._xinfo.ip, self._xinfo.port))
 
     def _notify(self, message: OscMessage):
         for queue, meters in self._subscriptions:

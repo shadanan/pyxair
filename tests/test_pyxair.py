@@ -63,7 +63,7 @@ async def step():
 
 
 @pytest.mark.asyncio
-async def test_put(xair, server, event_loop):
+async def test_put_sends_message_to_xair(xair, server, event_loop):
     xair.put("/lr/mix/on", [1])
     await step()
     message = server.messages[1]
@@ -71,10 +71,31 @@ async def test_put(xair, server, event_loop):
 
 
 @pytest.mark.asyncio
-async def test_get(xair, server, event_loop):
-    server.put(OscMessage("/lr/mix/on", [1]))
+async def test_get_retrieves_value_from_xair(xair, server, event_loop):
+    server.put(OscMessage("/lr/mix/on", [0]))
     message = await xair.get("/lr/mix/on")
-    assert message == OscMessage("/lr/mix/on", [1])
+    assert message == OscMessage("/lr/mix/on", [0])
+
+
+@pytest.mark.asyncio
+async def test_enable_meter_sends_meters_command(transport, server, event_loop):
+    xair = XAir(
+        XInfo(
+            ip="localhost",
+            port=transport._sock.getsockname()[1],
+            name="XR18-00-00-00",
+            model="XR18",
+            version="1.17",
+        )
+    )
+    xair.enable_meter(2)
+    task = event_loop.create_task(xair.monitor())
+
+    await step()
+    assert OscMessage("/meters", ["/meters/2"]) in server.messages
+
+    task.cancel()
+    await task
 
 
 if __name__ == "__main__":
