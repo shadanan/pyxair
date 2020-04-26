@@ -11,33 +11,6 @@ from typing import Any, Awaitable, Callable, List, Set
 
 
 logger = logging.getLogger("pyxair")
-
-
-class MeterLoggingFilter(logging.Filter):
-    def __init__(self):
-        self.last_log_time = datetime.min
-        self.meter_counters = defaultdict(int)
-
-    def filter(self, record):
-        if record.msg == "Received: %s":
-            message = record.args[0]
-            if message.address.startswith("/meters/"):
-                self.meter_counters[message.address] += 1
-                now = datetime.now()
-                if now - self.last_log_time > timedelta(seconds=10):
-                    self.last_log_time = now
-                    logger.debug(
-                        "Received: %d OscMessages for %s",
-                        self.meter_counters[message.address],
-                        message.address,
-                    )
-                return False
-        return True
-
-
-logger.addFilter(MeterLoggingFilter())
-
-
 OscMessage = namedtuple("OscMessage", ["address", "arguments"])
 XInfo = namedtuple("XInfo", ["ip", "port", "name", "model", "version"])
 
@@ -125,7 +98,7 @@ class XAir:
                 data = message.arguments[0]
                 message = OscMessage(
                     message.address,
-                    struct.unpack(f"<{struct.unpack('<i', data[0:4])[0]}h", data[4:],),
+                    struct.unpack(f"<{struct.unpack('<i', data[0:4])[0]}h", data[4:]),
                 )
             else:
                 logger.info("Received: %s", message)
