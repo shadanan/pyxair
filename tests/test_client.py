@@ -47,7 +47,7 @@ def server(datagram_endpoint):
 
 
 @pytest.fixture
-async def xair(transport, event_loop):
+async def xair(transport):
     xair = XAir(
         XInfo(
             ip="localhost",
@@ -57,7 +57,7 @@ async def xair(transport, event_loop):
             version="1.17",
         )
     )
-    task = event_loop.create_task(xair.start())
+    task = asyncio.create_task(xair.start())
     await step()
     yield xair
     task.cancel()
@@ -69,27 +69,27 @@ async def step():
 
 
 @pytest.mark.asyncio
-async def test_monitor_subscribes_to_xair_messages(xair, server, event_loop):
+async def test_monitor_subscribes_to_xair_messages(xair, server):
     await step()
     assert OscMessage("/xremote", []) in server.messages
 
 
 @pytest.mark.asyncio
-async def test_put_sends_message_to_xair(xair, server, event_loop):
+async def test_put_sends_message_to_xair(xair, server):
     xair.put("/lr/mix/on", [1])
     await step()
     assert OscMessage("/lr/mix/on", [1]) in server.messages
 
 
 @pytest.mark.asyncio
-async def test_get_retrieves_value_from_xair(xair, server, event_loop):
+async def test_get_retrieves_value_from_xair(xair, server):
     server.put(OscMessage("/lr/mix/on", [0]))
     message = await xair.get("/lr/mix/on")
     assert message == OscMessage("/lr/mix/on", [0])
 
 
 @pytest.mark.asyncio
-async def test_enable_meter_sends_meters_command(transport, server, event_loop):
+async def test_enable_meter_sends_meters_command(transport, server):
     xair = XAir(
         XInfo(
             ip="localhost",
@@ -100,7 +100,7 @@ async def test_enable_meter_sends_meters_command(transport, server, event_loop):
         )
     )
     xair.enable_meter(2)
-    task = event_loop.create_task(xair.start())
+    task = asyncio.create_task(xair.start())
 
     await step()
     assert OscMessage("/meters", ["/meters/2"]) in server.messages
@@ -110,7 +110,7 @@ async def test_enable_meter_sends_meters_command(transport, server, event_loop):
 
 
 @pytest.mark.asyncio
-async def test_disable_meter_doesnt_send_meters_command(transport, server, event_loop):
+async def test_disable_meter_doesnt_send_meters_command(transport, server):
     xair = XAir(
         XInfo(
             ip="localhost",
@@ -122,7 +122,7 @@ async def test_disable_meter_doesnt_send_meters_command(transport, server, event
     )
     xair.enable_meter(2)
     xair.disable_meter(2)
-    task = event_loop.create_task(xair.start())
+    task = asyncio.create_task(xair.start())
 
     await step()
     assert OscMessage("/meters", ["/meters/2"]) not in server.messages
@@ -132,7 +132,7 @@ async def test_disable_meter_doesnt_send_meters_command(transport, server, event
 
 
 @pytest.mark.asyncio
-async def test_subscribe_receives_message_from_xair(xair, server, event_loop):
+async def test_subscribe_receives_message_from_xair(xair, server):
     with xair.subscribe() as queue:
         server.send(OscMessage("/lr/mix/on", [0]))
         message = await queue.get()

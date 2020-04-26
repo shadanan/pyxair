@@ -7,7 +7,7 @@ Python library for interacting with Behringer XAir devices.
 ### Detect XAir Devices
 
 ```python
-xinfo = pyxair.auto_detect()
+xinfo = await pyxair.auto_detect()
 ```
 
 ### Create an XAir Client
