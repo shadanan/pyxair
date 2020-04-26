@@ -7,6 +7,10 @@ from pyxair import encode, decode, OscMessage, XAir, XInfo
 class XAirServerProtocol(asyncio.DatagramProtocol):
     def __init__(self):
         self.messages = []
+        self.settings = {}
+
+    def put(self, setting):
+        self.settings[setting.address] = setting
 
     def connection_made(self, transport):
         self.transport = transport
@@ -15,7 +19,7 @@ class XAirServerProtocol(asyncio.DatagramProtocol):
         message = decode(data)
         self.messages.append(message)
         if message == OscMessage("/lr/mix/on", []):
-            self.transport.sendto(encode(OscMessage("/lr/mix/on", [1])), addr)
+            self.transport.sendto(encode(self.settings[message.address]), addr)
 
 
 @pytest.fixture
@@ -59,14 +63,6 @@ async def step():
 
 
 @pytest.mark.asyncio
-async def test_send_encodes_osc_and_sends_message(xair, server, event_loop):
-    xair.send(OscMessage("/lr/mix/on", [0]))
-    await step()
-    actual = server.messages[1]
-    assert actual == OscMessage("/lr/mix/on", [0])
-
-
-@pytest.mark.asyncio
 async def test_put(xair, server, event_loop):
     xair.put("/lr/mix/on", [1])
     await step()
@@ -76,6 +72,7 @@ async def test_put(xair, server, event_loop):
 
 @pytest.mark.asyncio
 async def test_get(xair, server, event_loop):
+    server.put(OscMessage("/lr/mix/on", [1]))
     message = await xair.get("/lr/mix/on")
     assert message == OscMessage("/lr/mix/on", [1])
 
