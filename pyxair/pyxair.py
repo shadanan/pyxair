@@ -64,34 +64,33 @@ class XAir:
         self._subscriptions = set()
 
     @contextlib.contextmanager
-    def subscribe(self):
+    def subscribe(self, meters=True):
         try:
             queue = asyncio.Queue()
-            self._subscriptions.add(queue)
-            logger.info(f"Subscribed: {queue}")
+            self._subscriptions.add((queue, meters))
+            logger.info("Subscribed (meters=%s): %s", meters, queue)
             yield queue
         finally:
-            self._subscriptions.remove(queue)
-            logger.info(f"Unsubscribed: {queue}")
+            self._subscriptions.remove((queue, meters))
+            logger.info("Unsubscribed (meters=%s): %s", meters, queue)
 
     async def get(self, address) -> OscMessage:
-        if address not in self._cache:
-            self.send(OscMessage(address, []))
-        async with self._cv:
-            while address not in self._cache:
-                await self._cv.wait()
-            logger.info("Get: %s", self._cache[address])
+        await asyncio.sleep(0)
+        if address in self._cache:
             return self._cache[address]
+        with self.subscribe(meters=False) as queue:
+            self._send(OscMessage(address, []))
+            while True:
+                message = await queue.get()
+                if message.address == address:
+                    logger.info("Get: %s", message)
+                    return message
 
-    async def put(self, address, arguments):
+    def put(self, address, arguments):
         message = OscMessage(address, arguments)
         logger.info("Put: %s", message)
-        self.send(message)
-        await self._notify(message)
-
-    def send(self, message: OscMessage):
-        logger.debug("Sending: %s", message)
-        self._sock.sendto(encode(message), (self._xinfo.ip, self._xinfo.port))
+        self._send(message)
+        self._notify(message)
 
     def enable_meter(self, id, channel=None):
         logger.info("Enabled Meter: %d (%s)", id, channel)
@@ -106,44 +105,49 @@ class XAir:
     async def monitor(self):
         logger.info("Monitoring: %s", self._xinfo)
         loop = asyncio.get_running_loop()
-        self._cv = asyncio.Condition()
 
         async def refresh():
             while True:
-                self.send(OscMessage("/xremote", []))
+                self._send(OscMessage("/xremote", []))
                 for arguments in self._meters.values():
-                    self.send(OscMessage("/meters", arguments))
+                    self._send(OscMessage("/meters", arguments))
                 await asyncio.sleep(8)
 
-        async def receive():
-            while True:
-                message = decode(await loop.sock_recv(self._sock, 512))
-                if message.address.startswith("/meters/"):
-                    data = message.arguments[0]
-                    message = OscMessage(
-                        message.address,
-                        struct.unpack(
-                            f"<{struct.unpack('<i', data[0:4])[0]}h", data[4:],
-                        ),
-                    )
-                else:
-                    logger.info("Received: %s", message)
-                await self._notify(message)
+        async def cache():
+            with self.subscribe(meters=False) as queue:
+                while True:
+                    message = await queue.get()
+                    self._cache[message.address] = message
+
+        def receive():
+            message = decode(self._sock.recv(512))
+            if message.address.startswith("/meters/"):
+                data = message.arguments[0]
+                message = OscMessage(
+                    message.address,
+                    struct.unpack(f"<{struct.unpack('<i', data[0:4])[0]}h", data[4:],),
+                )
+            else:
+                logger.info("Received: %s", message)
+            self._notify(message)
 
         refresh_task = loop.create_task(refresh())
-        receive_task = loop.create_task(receive())
+        cache_task = loop.create_task(cache())
+        loop.add_reader(self._sock, receive)
+        # receive_task = loop.create_task(receive())
         try:
-            await asyncio.gather(refresh_task, receive_task)
+            await asyncio.gather(refresh_task, cache_task)
         except asyncio.CancelledError:
             pass
 
-    async def _notify(self, message: OscMessage):
-        if not message.address.startswith("/meters/"):
-            async with self._cv:
-                self._cache[message.address] = message
-                self._cv.notify()
-        for queue in self._subscriptions:
-            await queue.put(message)
+    def _send(self, message: OscMessage):
+        logger.debug("Sending: %s", message)
+        self._sock.sendto(encode(message), (self._xinfo.ip, self._xinfo.port))
+
+    def _notify(self, message: OscMessage):
+        for queue, meters in self._subscriptions:
+            if meters or not message.address.startswith("/meters/"):
+                queue.put_nowait(message)
 
     def __repr__(self):
         return f"XAir({repr(self._xinfo)})"
@@ -171,5 +175,5 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(name)s - %(message)s", level=logging.INFO,
     )
     xair = XAir(auto_detect())
-    xair.enable_meter(2)
+    # xair.enable_meter(2)
     asyncio.run(xair.monitor())
