@@ -57,7 +57,7 @@ async def xair(transport, event_loop):
             version="1.17",
         )
     )
-    task = event_loop.create_task(xair.monitor())
+    task = event_loop.create_task(xair.start())
     await step()
     yield xair
     task.cancel()
@@ -100,7 +100,7 @@ async def test_enable_meter_sends_meters_command(transport, server, event_loop):
         )
     )
     xair.enable_meter(2)
-    task = event_loop.create_task(xair.monitor())
+    task = event_loop.create_task(xair.start())
 
     await step()
     assert OscMessage("/meters", ["/meters/2"]) in server.messages
@@ -122,7 +122,7 @@ async def test_disable_meter_doesnt_send_meters_command(transport, server, event
     )
     xair.enable_meter(2)
     xair.disable_meter(2)
-    task = event_loop.create_task(xair.monitor())
+    task = event_loop.create_task(xair.start())
 
     await step()
     assert OscMessage("/meters", ["/meters/2"]) not in server.messages

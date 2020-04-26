@@ -16,7 +16,7 @@ xinfo = pyxair.auto_detect()
 
 ```python
 xair = pyxair.XAir(xinfo)
-asyncio.create_task(xair.monitor())
+asyncio.create_task(xair.start())
 ```
 
 ### Get & Put

@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, List, Set
 logger = logging.getLogger("pyxair")
 OscMessage = namedtuple("OscMessage", ["address", "arguments"])
 XInfo = namedtuple("XInfo", ["ip", "port", "name", "model", "version"])
+XAirTask = namedtuple("XAirTask", ["xinfo", "xair", "task"])
 
 
 def encode(osc_message):
@@ -75,7 +76,7 @@ class XAir:
         logger.info("Disabled Meter: %d (%s)", id, channel)
         del self._meters[(id, channel)]
 
-    async def monitor(self):
+    async def start(self):
         logger.info("Monitoring: %s", self._xinfo)
         loop = asyncio.get_running_loop()
 
@@ -125,27 +126,118 @@ class XAir:
         return f"XAir({repr(self._xinfo)})"
 
 
-def auto_detect(timeout=3) -> XInfo:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
-    sock.settimeout(timeout)
+class XAirScanner:
+    def __init__(self, timeout=30):
+        self._timeout = timeout
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
+        self._sock.setblocking(False)
+        self._xinfos = {}
+        self._previous_xinfos = set()
+        self._subscriptions = set()
 
-    sock.sendto(encode(OscMessage("/xinfo", [])), ("<broadcast>", 10024))
+    @contextlib.contextmanager
+    def subscribe(self):
+        try:
+            queue = asyncio.Queue()
+            self._subscriptions.add(queue)
+            logger.info("Subscribed: %s", queue)
+            yield queue
+        finally:
+            self._subscriptions.remove(queue)
+            logger.info("Unsubscribed: %s", queue)
 
-    try:
-        dgram, server = sock.recvfrom(512)
-        args = decode(dgram).arguments
-        xinfo = XInfo(server[0], server[1], args[1], args[2], args[3])
-        logger.debug("Detected: %s", xinfo)
-        return xinfo
-    finally:
-        sock.close()
+    def _notify(self):
+        current_xinfos = set(self.get().keys())
+        if current_xinfos != self._previous_xinfos:
+            logger.info("XInfos: %s", current_xinfos)
+            for queue in self._subscriptions:
+                queue.put_nowait(current_xinfos)
+        self._previous_xinfos = current_xinfos
+
+    def get(self):
+        self._xinfos = {
+            k: v
+            for k, v in self._xinfos.items()
+            if datetime.now() - v < timedelta(seconds=self._timeout)
+        }
+        return self._xinfos
+
+    async def start(self, broadcast_period=10):
+        loop = asyncio.get_running_loop()
+
+        async def refresh():
+            xinfo = encode(OscMessage("/xinfo", []))
+            while True:
+                self._notify()
+                self._sock.sendto(xinfo, ("<broadcast>", 10024))
+                await asyncio.sleep(broadcast_period)
+
+        def receive():
+            dgram, server = self._sock.recvfrom(512)
+            args = decode(dgram).arguments
+            xinfo = XInfo(server[0], server[1], args[1], args[2], args[3])
+            if xinfo.ip != "0.0.0.0":
+                logger.debug("Detected: %s", xinfo)
+                self._xinfos[xinfo] = datetime.now()
+                self._notify()
+
+        refresh_task = loop.create_task(refresh())
+        loop.add_reader(self._sock, receive)
+        await refresh_task
+
+
+class XAirTaskManager:
+    def __init__(self):
+        self._xairs = {}
+
+    def get_xair(self, xinfo):
+        return self._xairs[xinfo].xair
+
+    def list_xairs(self):
+        return list(self._xairs)
+
+    async def start(self):
+        loop = asyncio.get_running_loop()
+        scanner = XAirScanner()
+        with scanner.subscribe() as queue:
+            loop.create_task(scanner.start())
+            while True:
+                xinfos = await queue.get()
+
+                for xinfo in list(self._xairs):
+                    if xinfo not in xinfos:
+                        task = self._xairs[xinfo].task
+                        del self._xairs[xinfo]
+                        task.cancel()
+                        await task
+
+                for xinfo in xinfos:
+                    if xinfo not in self._xairs:
+                        xair = XAir(xinfo)
+                        xair_task = loop.create_task(xair.start())
+                        self._xairs[xinfo] = XAirTask(xinfo, xair, xair_task)
+
+
+async def auto_detect() -> XInfo:
+    loop = asyncio.get_running_loop()
+    monitor = XAirScanner()
+    with monitor.subscribe() as queue:
+        loop.create_task(monitor.start())
+        while True:
+            xinfos = await queue.get()
+            if len(xinfos) > 0:
+                return xinfos.pop()
 
 
 if __name__ == "__main__":
     logging.basicConfig(
         format="%(asctime)s [%(levelname)s] %(name)s - %(message)s", level=logging.INFO,
     )
-    xair = XAir(auto_detect())
-    xair.enable_meter(2)
-    asyncio.run(xair.monitor())
+
+    async def start():
+        xair = XAir(await auto_detect())
+        xair.enable_meter(2)
+        await xair.start()
+
+    asyncio.run(start())
