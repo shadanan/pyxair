@@ -1,10 +1,20 @@
 import pythonosc.osc_message
 import pythonosc.osc_message_builder
-from collections import defaultdict, namedtuple
+from datetime import datetime
+from typing import List, NamedTuple, Union
 
 
-OscMessage = namedtuple("OscMessage", ["address", "arguments"])
-XInfo = namedtuple("XInfo", ["ip", "port", "name", "model", "version"])
+class XInfo(NamedTuple):
+    ip: str
+    port: int
+    name: str
+    model: str
+    version: str
+
+
+class OscMessage(NamedTuple):
+    address: str
+    arguments: List[Union[int, float, str, bytes, datetime]]
 
 
 def encode(osc_message: OscMessage) -> bytes:

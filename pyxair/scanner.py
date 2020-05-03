@@ -2,8 +2,8 @@ import asyncio
 import contextlib
 import logging
 import socket
-from .osc import encode, decode, OscMessage, XInfo
 from datetime import datetime, timedelta
+from .osc import encode, decode, OscMessage, XInfo
 
 logger = logging.getLogger("pyxair")
 
@@ -49,40 +49,46 @@ class XAirScanner:
         loop = asyncio.get_running_loop()
 
         async def refresh():
-            xinfo = encode(OscMessage("/xinfo", []))
+            xinfo = OscMessage("/xinfo", [])
             while True:
                 self._notify()
-                self._sock.sendto(xinfo, ("<broadcast>", 10024))
+                logger.debug("Broadcasting: %s", xinfo)
+                self._sock.sendto(encode(xinfo), ("<broadcast>", 10024))
                 await asyncio.sleep(broadcast_period)
 
         def receive():
             dgram, server = self._sock.recvfrom(512)
             args = decode(dgram).arguments
             xinfo = XInfo(server[0], server[1], args[1], args[2], args[3])
-            if xinfo.ip != "0.0.0.0":
-                logger.debug("Detected: %s", xinfo)
-                self._xinfos[xinfo] = datetime.now()
-                self._notify()
+            logger.debug("Detected: %s", xinfo)
+            self._xinfos[xinfo] = datetime.now()
+            self._notify()
 
         refresh_task = loop.create_task(refresh())
         loop.add_reader(self._sock, receive)
-        await refresh_task
+        try:
+            await refresh_task
+        except asyncio.CancelledError:
+            pass
 
 
 async def auto_detect() -> XInfo:
     monitor = XAirScanner()
     with monitor.subscribe() as queue:
-        asyncio.create_task(monitor.start())
+        task = asyncio.create_task(monitor.start())
         while True:
             xinfos = await queue.get()
             if len(xinfos) > 0:
-                return xinfos.pop()
+                break
+        task.cancel()
+        await task
+        return xinfos.pop()
 
 
 if __name__ == "__main__":
     logging.basicConfig(
         format="%(asctime)s - (%(name)s)[%(levelname)s] - %(message)s",
-        level=logging.INFO,
+        level=logging.DEBUG,
     )
 
     from .client import XAir
