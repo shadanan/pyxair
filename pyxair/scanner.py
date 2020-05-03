@@ -70,7 +70,10 @@ class XAirScanner:
             args = decode(dgram).arguments
             xinfo = XInfo(server[0], server[1], args[1], args[2], args[3])
             logger.debug("Detected: %s", xinfo)
-            self._xinfos.setdefault(xinfo, XAirTask(xinfo, self._connect)).refresh()
+            if xinfo not in self._xinfos:
+                self._xinfos[xinfo] = XAirTask(xinfo, self._connect)
+            else:
+                self._xinfos[xinfo].refresh()
             self._notify()
 
         refresh_task = loop.create_task(refresh())

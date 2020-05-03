@@ -25,11 +25,11 @@ class XAir:
         try:
             queue = asyncio.Queue()
             self._subscriptions.add((queue, meters))
-            logger.info("Subscribed (meters=%s): %s", meters, queue)
+            logger.debug("Subscribed (meters=%s): %s", meters, queue)
             yield queue
         finally:
             self._subscriptions.remove((queue, meters))
-            logger.info("Unsubscribed (meters=%s): %s", meters, queue)
+            logger.debug("Unsubscribed (meters=%s): %s", meters, queue)
 
     async def get(self, address) -> OscMessage:
         await asyncio.sleep(0)
