@@ -1,24 +1,24 @@
 import asyncio
 import pytest
 import socket
-from pyxair import encode, OscMessage, XAirTaskManager
+from pyxair import encode, OscMessage, XAirScanner
 
 
 @pytest.mark.asyncio
 async def test_functional():
-    manager = XAirTaskManager()
-    manager_task = asyncio.create_task(manager.start())
+    scanner = XAirScanner(connect=True)
+    scanner_task = asyncio.create_task(scanner.start())
 
-    with manager.subscribe() as queue:
+    with scanner.subscribe() as queue:
         while True:
             xinfos = await queue.get()
             if len(xinfos) > 0:
-                xinfo = xinfos[0]
+                xinfo = xinfos.pop()
                 break
 
     assert xinfo.model == "XR18"
 
-    xair = manager.get_xair(xinfo)
+    xair = scanner.get(xinfo)
 
     resp = await xair.get("/status")
     assert resp.arguments[0] == "active"
@@ -39,5 +39,5 @@ async def test_functional():
         resp = await queue.get()
         assert resp == OscMessage("/lr/mix/on", [1])
 
-    manager_task.cancel()
-    await manager_task
+    scanner_task.cancel()
+    await scanner_task

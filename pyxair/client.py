@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, List, Set
 from .osc import encode, decode, OscMessage
 
-logger = logging.getLogger("pyxair")
+logger = logging.getLogger(__name__)
 
 
 class XAir:
