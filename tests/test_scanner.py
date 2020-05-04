@@ -1,6 +1,8 @@
 import asyncio
-import pytest
 import socket
+
+import pytest
+
 import pyxair
 
 

@@ -1,7 +1,8 @@
-import pythonosc.osc_message
-import pythonosc.osc_message_builder
 from datetime import datetime
 from typing import List, NamedTuple, Union
+
+import pythonosc.osc_message
+import pythonosc.osc_message_builder
 
 
 class XInfo(NamedTuple):

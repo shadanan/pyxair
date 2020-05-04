@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
+
 from .client import XAir
 
 logger = logging.getLogger(__name__)

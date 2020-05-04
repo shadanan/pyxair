@@ -3,7 +3,8 @@ import contextlib
 import logging
 import socket
 from datetime import datetime, timedelta
-from .osc import encode, decode, OscMessage, XInfo
+
+from .osc import OscMessage, XInfo, decode, encode
 from .task import XAirTask
 
 logger = logging.getLogger(__name__)

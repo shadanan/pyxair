@@ -6,7 +6,8 @@ import struct
 from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, List, Set
-from .osc import encode, decode, OscMessage
+
+from .osc import OscMessage, decode, encode
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,6 @@ class XAir:
             logger.debug("Unsubscribed (meters=%s): %s", meters, queue)
 
     async def get(self, address) -> OscMessage:
-        await asyncio.sleep(0)
         if address in self._cache:
             return self._cache[address]
         with self.subscribe(meters=False) as queue:
@@ -46,8 +46,8 @@ class XAir:
     def put(self, address, arguments):
         message = OscMessage(address, arguments)
         logger.info("Put: %s", message)
+        self._cache[address] = message
         self._send(message)
-        self._notify(message)
 
     def enable_meter(self, id, channel=None):
         logger.info("Enabled Meter: %d (%s)", id, channel)

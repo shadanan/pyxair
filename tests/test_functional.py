@@ -1,7 +1,9 @@
 import asyncio
-import pytest
 import socket
-from pyxair import encode, OscMessage, XAirScanner
+
+import pytest
+
+from pyxair import OscMessage, XAirScanner, encode
 
 
 @pytest.mark.asyncio
