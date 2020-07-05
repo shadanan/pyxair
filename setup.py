@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pyxair",
-    version="0.0.1",
+    version="0.0.2",
     author="Shad Sharma",
     author_email="shadanan@gmail.com",
     description="A library for interacting with Behringer XAir devices.",

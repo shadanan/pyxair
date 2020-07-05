@@ -32,16 +32,31 @@ class XAir:
             self._subscriptions.remove((queue, meters))
             logger.debug("Unsubscribed (meters=%s): %s", meters, queue)
 
-    async def get(self, address) -> OscMessage:
+    async def get(self, address, timeout=1) -> OscMessage:
         if address in self._cache:
             return self._cache[address]
         with self.subscribe(meters=False) as queue:
             self._send(OscMessage(address, []))
+            attempt = 0
             while True:
-                message = await queue.get()
-                if message.address == address:
-                    logger.info("Get: %s", message)
-                    return message
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=timeout)
+                    if message.address == address:
+                        logger.info("Get: %s", message)
+                        return message
+                except asyncio.TimeoutError:
+                    attempt += 1
+                    logger.log(
+                        logging.WARN if attempt < 3 else logging.ERROR,
+                        "Failed to Get (timeout=%ds, attempt=%d/3): %s",
+                        timeout,
+                        attempt,
+                        address,
+                    )
+                    if attempt < 3:
+                        self._send(OscMessage(address, []))
+                    else:
+                        raise
 
     def put(self, address, arguments):
         message = OscMessage(address, arguments)

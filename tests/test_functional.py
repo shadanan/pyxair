@@ -41,5 +41,8 @@ async def test_functional():
         resp = await queue.get()
         assert resp == OscMessage("/lr/mix/on", [1])
 
+    with pytest.raises(asyncio.TimeoutError):
+        await xair.get("/invalid/address")
+
     scanner_task.cancel()
     await scanner_task
