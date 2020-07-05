@@ -11,9 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class XAirScanner:
-    def __init__(self, connect=False, timeout=30):
+    def __init__(self, connect=False):
         self._connect = connect
-        self._timeout = timeout
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
         self._sock.setblocking(False)
