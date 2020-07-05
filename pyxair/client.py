@@ -20,6 +20,7 @@ class XAir:
         self._cache = {}
         self._meters = {}
         self._subscriptions = set()
+        self._remote = False
 
     @contextlib.contextmanager
     def subscribe(self, meters=True):
@@ -64,6 +65,12 @@ class XAir:
         self._cache[address] = message
         self._send(message)
 
+    def enable_remote(self):
+        self._remote = True
+
+    def disable_remote(self):
+        self._remote = False
+
     def enable_meter(self, id, channel=None):
         logger.info("Enabled Meter: %d (%s)", id, channel)
         self._meters[(id, channel)] = [f"/meters/{id}"]
@@ -80,10 +87,13 @@ class XAir:
 
         async def refresh():
             while True:
-                self._send(OscMessage("/xremote", []))
+                if self._remote:
+                    self._send(OscMessage("/xremote", []))
                 for arguments in self._meters.values():
                     self._send(OscMessage("/meters", arguments))
-                await asyncio.sleep(8)
+                if len(self._meters) == 0:
+                    self._send(OscMessage("/xinfo", []))
+                await asyncio.sleep(5)
 
         async def cache():
             with self.subscribe(meters=False) as queue:
@@ -92,6 +102,7 @@ class XAir:
                     self._cache[message.address] = message
 
         def receive():
+            self.refresh()
             message = decode(self._sock.recv(512))
             if message.address.startswith("/meters/"):
                 data = message.arguments[0]
@@ -110,6 +121,12 @@ class XAir:
             await asyncio.gather(refresh_task, cache_task)
         except asyncio.CancelledError:
             pass
+
+    def refresh(self):
+        self._seen = datetime.now()
+
+    def is_stale(self, timeout=10):
+        return datetime.now() - self._seen > timedelta(seconds=timeout)
 
     def _send(self, message: OscMessage):
         logger.debug("Sending: %s", message)

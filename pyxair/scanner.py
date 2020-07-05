@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 class XAirScanner:
-    def __init__(self, connect=False):
+    def __init__(self, connect=False, meters=[]):
         self._connect = connect
+        self._meters = meters
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
         self._sock.setblocking(False)
@@ -45,7 +46,7 @@ class XAirScanner:
     def list(self):
         return set(self._xinfos.keys())
 
-    async def start(self, broadcast_period=10):
+    async def start(self, broadcast_period=5):
         loop = asyncio.get_running_loop()
 
         async def refresh():
@@ -71,9 +72,7 @@ class XAirScanner:
             xinfo = XInfo(server[0], server[1], args[1], args[2], args[3])
             logger.debug("Detected: %s", xinfo)
             if xinfo not in self._xinfos:
-                self._xinfos[xinfo] = XAirTask(xinfo, self._connect)
-            else:
-                self._xinfos[xinfo].refresh()
+                self._xinfos[xinfo] = XAirTask(xinfo, self._connect, self._meters)
             self._notify()
 
         refresh_task = loop.create_task(refresh())
@@ -82,19 +81,6 @@ class XAirScanner:
             await refresh_task
         except asyncio.CancelledError:
             pass
-
-
-async def auto_detect() -> XInfo:
-    monitor = XAirScanner()
-    with monitor.subscribe() as queue:
-        task = asyncio.create_task(monitor.start())
-        while True:
-            xinfos = await queue.get()
-            if len(xinfos) > 0:
-                break
-        task.cancel()
-        await task
-        return xinfos.pop()
 
 
 if __name__ == "__main__":
@@ -106,8 +92,7 @@ if __name__ == "__main__":
     from .client import XAir
 
     async def start():
-        xair = XAir(await auto_detect())
-        xair.enable_meter(2)
-        await xair.start()
+        scanner = XAirScanner(connect=True, meters=[2])
+        await scanner.start()
 
     asyncio.run(start())

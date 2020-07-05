@@ -8,28 +8,21 @@ logger = logging.getLogger(__name__)
 
 
 class XAirTask:
-    def __init__(self, xinfo, connect=False):
+    def __init__(self, xinfo, connect=False, meters=[]):
         self._xinfo = xinfo
-        self._xair = None
-        self._task = None
-        self.refresh()
+        self._xair = XAir(self._xinfo)
+        self._task = asyncio.create_task(self._xair.start())
         if connect:
-            self.connect()
+            self._xair.enable_remote()
+        for meter in meters:
+            self._xair.enable_meter(meter)
 
     def get_xair(self):
         return self._xair
 
-    def refresh(self):
-        self._seen = datetime.now()
-
-    def is_stale(self, timeout=30):
-        return datetime.now() - self._seen > timedelta(seconds=timeout)
-
-    def connect(self):
-        self._xair = XAir(self._xinfo)
-        self._task = asyncio.create_task(self._xair.start())
+    def is_stale(self, timeout=10):
+        return self._xair.is_stale(timeout)
 
     def cancel(self):
-        if self._task:
-            self._task.cancel()
+        self._task.cancel()
         return self._task

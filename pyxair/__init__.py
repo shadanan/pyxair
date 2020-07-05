@@ -1,8 +1,4 @@
-from .osc import decode
-from .osc import encode
-from .osc import OscMessage
-from .osc import XInfo
-
 from .client import XAir
-from .scanner import auto_detect, XAirScanner
+from .osc import OscMessage, XInfo, decode, encode
+from .scanner import XAirScanner
 from .task import XAirTask
